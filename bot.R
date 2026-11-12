@@ -122,27 +122,6 @@ on_turn <- function(bot) {
                   turn = angles$clamp(angles$angle_diff(angles$bearing_to(position, zone$center), me$heading) / 30),
                   pitch_turn = angles$clamp((climb - me$pitch) / 30))
   }
-  calibrate(bot)
-}
-
-# ---- The arena's rate calibration: safe to delete, with the line above ----
-# Only the calibration sends calibration.work; it times this language on the
-# same work as every other. The kernel is xorshift-sqrt v1: work rounds of a
-# 64-bit xorshift and a square-root sum, reported as WORK. R has no 64-bit
-# integers, so x is four 16-bit limbs, lowest first.
-calibrate <- function(bot) {
-  work <- bot$raw$number("state.calibration.work")
-  if (is.null(work) || work < 1) return(invisible())
-  tick <- as.integer(bot$clock$tick)
-  x <- bitwXor(c(0x7a44L, 0xcbbfL, 0x408dL, 0x0139L), c(bitwAnd(tick, 0xffffL), bitwShiftR(tick, 16L), 0L, 0L))
-  sum <- 0
-  for (i in seq_len(work)) {
-    x <- bitwXor(x, bitwOr(bitwAnd(bitwShiftL(x, 13L), 0xffffL), bitwShiftR(c(0L, x[1:3]), 3L)))           # x << 13
-    x <- bitwXor(x, bitwOr(bitwShiftR(x, 7L), bitwAnd(bitwShiftL(c(x[2:4], 0L), 9L), 0xffffL)))            # x >> 7
-    x <- bitwXor(x, bitwOr(bitwAnd(bitwShiftL(c(0L, x[1:3]), 1L), 0xffffL), bitwShiftR(c(0L, 0L, x[1:2]), 15L))) # x << 17
-    sum <- sum + sqrt(sum(bitwShiftR(x, c(11L, 0L, 0L, 0L)) * c(1, 32, 2^21, 2^37)))  # x >> 11
-  }
-  bot$status$set("WORK", (floor(sum) + x[4] * 256 + bitwShiftR(x[3], 8L)) %% 1000000)  # x >> 40
 }
 
 run(robot(on_turn = on_turn, on_start = on_start))
