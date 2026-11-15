@@ -20,7 +20,8 @@
 # clock: tick seconds remaining_ticks
 # arena: size gravity terrain_kind ground_height(x y)
 # me: health position velocity heading pitch roll angular_velocity
-#   attitude grounded altitude applied
+#   attitude grounded altitude applied hull_mounts to_mount(heading pitch)
+#   from_mount(heading pitch) mount_toward(point)
 # battery: charge capacity regen sustainable_drive compute
 #   drive_cost(fraction)
 # drive: hover_lift
@@ -42,7 +43,8 @@
 # score: me best armour
 # angles: normalize(degrees) angle_diff(target current)
 #   bearing_to(from to) elevation_to(from to) direction(heading pitch)
-#   distance(a b) clamp(value low high)
+#   distance(a b) to_chassis(heading pitch attitude)
+#   from_chassis(heading pitch attitude) clamp(value low high)
 # raw: number(path) text(path) has(path) flag(path) count(path) line()
 # Controls: drive.set(throttle turn pitch_turn)
 #   drive.forces(thrust strafe lift yaw_torque pitch_torque roll_torque brake)
@@ -62,6 +64,8 @@ SEARCH_TURN <- 0.33 # enough to turn against the brake in the force rulesets
 steer <- function(towards, current) angles$clamp(angles$angle_diff(towards, current) / 45)
 
 free <- FALSE # flying free, robots may be above or below
+dodges <- 0
+dodge_end <- 0
 
 on_start <- function(bot) free <<- bot$match$is_3d && bot$arena$gravity$z == 0
 
@@ -77,6 +81,7 @@ on_turn <- function(bot) {
     bot$scanner$set(heading = target$bearing, arc = 20, pitch = target$elevation) # narrow: holds it, reaching about 735
     # The heaviest shot that still covers the range in about a second,
     # aimed where the target will be, lobbed under gravity.
+    # gun$lead is the intercept if the target holds course.
     power <- bot$gun$power_for_flight_time(target$range, 1)
     aim <- bot$gun$lead(target, power)
     heading <- if (is.null(aim)) target$bearing else aim$heading
@@ -105,6 +110,24 @@ on_turn <- function(bot) {
     pitch <- if (free) ((bot$clock$tick %/% 10) %% 3 - 1) * 35 else 0
     bot$scanner$set(heading = angles$normalize(bot$scanner$last$heading + 36), arc = 40, pitch = pitch)
     bot$status$set("SEARCH")
+  }
+  # A simple dodge: vary it, or predict the shooter.
+  tick <- bot$clock$tick
+  heard <- vapply(bot$sensors$cues, function(cue) cue$source == "muzzle", logical(1))
+  if (tick >= dodge_end && any(heard)) {
+    dodges <<- dodges + 1
+    dodge_end <<- tick + 10
+  }
+  if (tick < dodge_end) {
+    # Off the line of fire: left, then right next time (turn is positive left, strafe right).
+    left <- dodges %% 2 == 1
+    if (bot$match$control == "forces") {
+      bot$drive$set(throttle = 0.5)
+      bot$drive$forces(strafe = if (left) -1 else 1)
+    } else {
+      bot$drive$set(throttle = 1, turn = if (left) 1 else -1)
+    }
+    bot$status$set(if (left) "dodge:left" else "dodge:right", dodges)
   }
   # Low battery: drive gently so the shots can still be paid for.
   if (bot$battery$charge < bot$battery$capacity / 4) bot$drive$set(throttle = bot$drive$get("throttle") * 0.5)
